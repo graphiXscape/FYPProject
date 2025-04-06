@@ -1,0 +1,27 @@
+torch==1.8.1
+torchvision==0.9.1
+numpy>=1.16.1
+matplotlib
+svgwrite
+cairosvg
+IPython
+six>=1.12.0
+tensorflow==2.3.0
+tensorboardX
+pillow
+svglib
+tqdm
+jupyter
+scikit-image
+pandas
+networkx
+moviepy
+numba
+scikit-learn  # Updated sklearn name
+umap-learn
+umap-learn[plot]
+shapely
+kivy
+svgpathtools
+flask 
+flask-cors

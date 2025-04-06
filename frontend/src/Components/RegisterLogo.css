@@ -1,0 +1,118 @@
+.register-container {
+    max-width: 600px;
+    margin: 3rem auto;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    background-color: #ffffff;
+  }
+  
+  .register-title {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #1e3a8a;
+    margin-bottom: 0.5rem;
+    text-align: center;
+  }
+  
+  .register-desc {
+    font-size: 1rem;
+    color: #4b5563;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+  
+  .register-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  
+  .register-form label {
+    display: flex;
+    flex-direction: column;
+    font-weight: 500;
+    color: #374151;
+  }
+  
+  .register-form input,
+  .register-form textarea {
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 1rem;
+    margin-top: 0.5rem;
+  }
+  
+  .register-form input[type="file"] {
+    padding: 0.5rem 0;
+  }
+  
+  .submit-btn {
+    padding: 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  
+  .submit-btn:hover {
+    background-color: #1d4ed8;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  
+  .preview-box {
+    margin-top: 15px;
+    padding: 10px;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+  }
+  
+  .preview-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  
+  .preview-wrapper {
+    position: relative;
+    display: inline-block;
+  }
+  
+  .logo-preview {
+    width: 120px;
+    height: auto;
+    border: 1px solid #ccc;
+    padding: 5px;
+    background: white;
+    border-radius: 4px;
+  }
+  
+  .remove-btn {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: #ff5555;
+    border: none;
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  

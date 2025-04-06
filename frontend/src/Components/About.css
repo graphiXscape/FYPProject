@@ -1,0 +1,59 @@
+/* Container for the About section */
+.about-container {
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  
+  /* Heading styling for "Our Research Project" */
+  .about-title {
+    font-size: 2.5rem;
+    font-weight: bold;
+    margin-bottom: 20px;
+    text-align: center;
+    color: #333;
+  }
+  
+  /* Subtitle for the comparative analysis */
+  .about-subtitle {
+    font-size: 1.5rem;
+    font-style: italic;
+    text-align: center;
+    color: #555;
+    margin-bottom: 20px;
+  }
+  
+  /* Paragraph styling for the main content */
+  .about-content {
+    font-size: 1.1rem;
+    line-height: 1.6;
+    color: #333;
+    margin-bottom: 20px;
+  }
+  
+  /* Optional styling for any emphasis on terms like methods or results */
+  .about-content strong {
+    font-weight: bold;
+    color: #007bff;
+  }
+  
+  /* Optional: Adding spacing for paragraphs */
+  .about-content p {
+    margin-bottom: 15px;
+  }
+  
+  /* Add responsive behavior for smaller screens */
+  @media (max-width: 768px) {
+    .about-title {
+      font-size: 2rem;
+    }
+  
+    .about-subtitle {
+      font-size: 1.2rem;
+    }
+  
+    .about-content {
+      font-size: 1rem;
+    }
+  }
+  

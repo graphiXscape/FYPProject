@@ -25,3 +25,4 @@ kivy
 svgpathtools
 flask 
 flask-cors
+pymilvus

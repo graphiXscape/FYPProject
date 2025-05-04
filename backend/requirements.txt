@@ -26,3 +26,4 @@ svgpathtools
 flask 
 flask-cors
 pymilvus
+pymongo

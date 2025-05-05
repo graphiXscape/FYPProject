@@ -1,0 +1,7 @@
+id,platform,total_len,nb_groups,len_groups,max_len_group,category,subcategory
+0,ios11,67,10,"[8, 8, 7, 7, 7, 13, 11, 2, 2, 2]",13,characters,adventure-time-cartoon
+1,ios11,121,14,"[9, 11, 11, 9, 8, 8, 9, 9, 4, 7, 15, 7, 7, 7]",15,characters,animation-characters
+2,ios11,30,2,"[15, 15]",15,characters,cinema-symbols
+3,ios11,45,7,"[22, 8, 5, 2, 2, 2, 4]",22,characters,cinema-symbols
+4,ios11,66,6,"[19, 7, 16, 8, 9, 7]",19,characters,cinema-symbols
+5,ios11,48,3,"[21, 13, 14]",21,characters,cinema-symbols

@@ -165,81 +165,73 @@ def load_and_encode_ab(svg_path):
         print(f"Encoding failed for {svg_path}: {e}")
         return None
 
-
-
-# app.view_functions.pop('register_logo', None)  # <-- Add this line to unregister previous version
 @app.route('/api/register-logo', methods=['POST'])
 def register_logo():
-    if 'logo' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
+    if 'logos' not in request.files:
+        return jsonify({'error': 'No files uploaded'}), 400
 
-    file = request.files['logo']
-    if not file or file.filename == '' or not file.filename.endswith('.svg'):
-        return jsonify({'error': 'Invalid or missing SVG file'}), 400
+    uploaded_files = request.files.getlist('logos')
+    if not uploaded_files:
+        return jsonify({'error': 'No files received'}), 400
 
-    # Unique ID and paths
-    logo_id = str(uuid.uuid4())
-    svg_filename = f"{logo_id}.svg"
-    # png_filename = f"{logo_id}.png"
-    svg_path = os.path.join(DATASET_DIR, svg_filename)
-    # png_path = os.path.join(PNG_OUTPUT_DIR, png_filename)
+    results = []
 
-    # Save SVG
-    file.save(svg_path)
+    for file in uploaded_files:
+        if not file or file.filename == '' or not file.filename.endswith('.svg'):
+            continue  # skip invalid file
 
-    # Encode SVG
-    embedding, is_deepsvg_successful = load_and_encode(svg_path)
+        logo_id = str(uuid.uuid4())
+        svg_filename = f"{logo_id}.svg"
+        svg_path = os.path.join(DATASET_DIR, svg_filename)
 
-    if not is_deepsvg_successful:
-        print(f"DeepSVG failed for {file.filename}. Proceeding with fallback...")
+        file.save(svg_path)
 
-    target_vector = load_and_encode_ab(svg_path)
-    if target_vector is None:
+        embedding, is_deepsvg_successful = load_and_encode(svg_path)
+        if not is_deepsvg_successful:
+            print(f"DeepSVG failed for {file.filename}. Proceeding with fallback...")
+
+        target_vector = load_and_encode_ab(svg_path)
+        if target_vector is None:
+            os.remove(svg_path)
+            continue
+
+        if embedding:
+            mr = collection.insert([[embedding]])
+            milvus_id = mr.primary_keys[0]
+        else:
+            milvus_id = None
+
+        with open(svg_path, 'r', encoding='utf-8') as svg_file:
+            svg_content = svg_file.read()
+
+        mongo_record = {
+            "logo_id": logo_id,
+            "svg_content": svg_content,
+            "milvus_id": milvus_id,
+            "file_name": file.filename,
+            "parsed_coordinates": target_vector.tolist(),
+            "isDeepSVG": is_deepsvg_successful,
+            "companyName": request.form.get('companyName'),
+            "websiteURL": request.form.get('websiteURL'),
+            "metadata": request.form.get('metadata')
+        }
+
+        mongo_collection.insert_one(mongo_record)
         os.remove(svg_path)
-        return jsonify({'error': 'SVG parsing failed'}), 500
 
-    # If embedding failed, skip Milvus insertion and assign None
-    if embedding:
-        mr = collection.insert([[embedding]])
-        milvus_id = mr.primary_keys[0]
-    else:
-        milvus_id = None
+        results.append({
+            "logo_id": logo_id,
+            "milvus_id": milvus_id,
+            "file_name": file.filename
+        })
 
-    # Convert to PNG
-    # cairosvg.svg2png(file_obj=open(svg_path, "rb"), write_to=png_path)
-
-    # Read SVG file content
-    with open(svg_path, 'r', encoding='utf-8') as svg_file:
-        svg_content = svg_file.read()
-
-    # Save metadata and SVG content in MongoDB
-    mongo_record = {
-        "logo_id": logo_id,
-        "svg_content": svg_content,
-        "milvus_id": milvus_id,
-        "file_name": file.filename,
-        "parsed_coordinates": target_vector.tolist(),
-        "isDeepSVG": is_deepsvg_successful
-    }
-
-    mongo_collection.insert_one(mongo_record)
-    print(mongo_collection.count_documents({}))  # Should now return a non-zero count
-    print(mongo_db.list_collection_names())  # Should now list 'logos'
-
-    docs = list(mongo_collection.find())
-    
-    # Print the documents to the console (optional for debugging)
-    print("Fetched documents from the 'logos' collection:")
-    for doc in docs:
-        print(doc)
-        
-    # Delete the SVG file after processing
-    os.remove(svg_path)
+    if not results:
+        return jsonify({'error': 'No valid SVG logos were processed.'}), 400
     return jsonify({
-        "message": "Logo registered successfully",
-        "logo_id": logo_id,
-        "milvus_id": milvus_id
-    })
+        "message": f"{len(results)} logo(s) registered successfully",
+        "results": results
+    }), 200
+
 
 
 
@@ -385,9 +377,14 @@ def combined_lookup():
             print(f"[ERROR] Failed to render PNG for {mongo_id}: {str(e)}")
             continue
 
+        company_name = doc["companyName"] if "companyName" in doc else "Unknown Company"
+        company_url = doc["websiteURL"] if "websiteURL" in doc else f"https://example.com/brand/{mongo_id}"
+
         results.append({
             "logoUrl": f"data:image/png;base64,{b64_png}",
-            "companyUrl": f"https://example.com/brand/{mongo_id}",
+            # "companyUrl": f"https://example.com/brand/{mongo_id}",
+            "companyName": company_name,
+            "companyUrl": company_url,
             "score": round(item["score"], 4)
         })
 

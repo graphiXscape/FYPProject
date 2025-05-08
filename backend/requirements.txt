@@ -33,3 +33,4 @@ torchvision==0.16.2
 tensorflow==2.15.0
 moviepy==1.0.1
 cairosvg
+gunicorn

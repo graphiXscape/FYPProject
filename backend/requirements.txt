@@ -1,12 +1,12 @@
-torch==1.8.1
-torchvision==0.9.1
+# torch==1.8.1
+# torchvision==0.9.1
 numpy>=1.16.1
 matplotlib
 svgwrite
-cairosvg
+# cairosvg
 IPython
 six>=1.12.0
-tensorflow==2.3.0
+# tensorflow==2.3.0
 tensorboardX
 pillow
 svglib
@@ -15,7 +15,7 @@ jupyter
 scikit-image
 pandas
 networkx
-moviepy
+# moviepy
 numba
 scikit-learn  # Updated sklearn name
 umap-learn
@@ -27,3 +27,9 @@ flask
 flask-cors
 pymilvus
 pymongo
+
+torch==2.1.2
+torchvision==0.16.2
+tensorflow==2.15.0
+moviepy==1.0.1
+cairosvg

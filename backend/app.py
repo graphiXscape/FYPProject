@@ -194,6 +194,40 @@ def register_logo():
             os.remove(svg_path)
             continue
 
+        """begin:Similarity Check"""
+        if is_deepsvg_successful:
+            try:
+                search_results = collection.search(
+                    data=[embedding],
+                    anns_field="vector",
+                    param={"metric_type": "COSINE"},
+                    limit=1,
+                    output_fields=["milvus_id"]
+                )[0]
+                for hit in search_results:
+                    if hit.distance >= 0.9:  # Cosine similarity threshold
+                        os.remove(svg_path)
+                        return jsonify({'message': 'Registration failed: Similar logo already exists.'}), 409
+            except Exception as e:
+                print(f"Milvus similarity check failed: {e}")
+        else:
+
+
+        # 2. Check against MongoDB (Procrustes)
+            try:
+                for doc in mongo_collection.find({}, {"parsed_coordinates": 1}):
+                    if "parsed_coordinates" not in doc:
+                        continue
+                    score = compute_procrustes_similarity(target_vector, np.array(doc["parsed_coordinates"]))
+                    if score >= 0.9:
+                        os.remove(svg_path)
+                        return jsonify({'message': 'Registration failed: Similar logo already exists (Procrustes similarity ≥ 0.9).'}), 409
+            except Exception as e:
+                print(f"Procrustes similarity check failed: {e}")
+
+
+        """end:Similarity Check"""
+
         if embedding:
             mr = collection.insert([[embedding]])
             milvus_id = mr.primary_keys[0]

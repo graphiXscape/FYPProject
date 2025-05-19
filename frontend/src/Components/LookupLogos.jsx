@@ -9,11 +9,14 @@ const Lookup = () => {
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-    if (file && file.type === 'image/svg+xml') {
+    if (!file) return;
+    const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg'];
+
+    if (validTypes.includes(file.type)) {
       setSelectedFile(file);
       setPreviewURL(URL.createObjectURL(file));
     } else {
-      alert('Please upload a valid SVG file.');
+      alert('Please upload a valid SVG, PNG, or JPG file.');
     }
   };
 

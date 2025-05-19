@@ -56,7 +56,6 @@ from svgpathtools import svg2paths, Path
 
 
 
-
 device = torch.device("cuda:0"if torch.cuda.is_available() else "cpu") 
 
 # Safer path handling to avoid issues with os.chdir
@@ -250,7 +249,24 @@ def compute_procrustes_similarity(shape1, shape2):
         print(f"Procrustes comparison failed: {e}")
         return 0
 
+def z_score_normalize(scores):
+    scores = np.array(scores)
+    mean = np.mean(scores)
+    std = np.std(scores)
+    if std == 0:
+        return np.zeros_like(scores)
+    return (scores - mean) / std
 
+def quality_weighted_fusion(deep_scores, alg_scores):
+    deep_norm = z_score_normalize(deep_scores)
+    alg_norm = z_score_normalize(alg_scores)
+    deep_quality = 1.0 / (np.var(deep_norm) + 1e-6)
+    alg_quality = 1.0 / (np.var(alg_norm) + 1e-6)
+    total_quality = deep_quality + alg_quality
+    deep_weight = deep_quality / total_quality
+    alg_weight = alg_quality / total_quality
+    fused_scores = deep_weight * deep_norm + alg_weight * alg_norm
+    return fused_scores
 
 # Combined lookup endpoint
 @app.route('/api/lookup-logo', methods=['POST'])
@@ -300,22 +316,26 @@ def combined_lookup():
                 data=[deep_vector],
                 anns_field="vector",
                 param={"metric_type": "COSINE"},
-                limit=5,
+                limit=10,
                 output_fields=["milvus_id"]
             )[0]
             print(f"[4/7] Milvus returned {len(deep_results)} results")
-
-            for hit in deep_results:
-                doc = mongo_collection.find_one({"milvus_id": hit.id})
-                if doc:
-                    deep_mongo_docs.append({
-                        "_id": str(doc["_id"]),
-                        "score": float(hit.distance),
-                        "doc": doc
-                    })
-                    print(f"[4/7] DeepSVG match: ID={doc['_id']}, Score={hit.distance:.4f}")
-                else:
-                    print(f"[WARNING] No MongoDB doc for Milvus ID={hit.id}")
+            # Filter DeepSVG results with similarity >= 0.5
+            deep_check_results = [hit for hit in deep_results if hit.distance >= 0.5]
+            if not deep_check_results:
+                print("[INFO] No DeepSVG results with similarity >= 0.5")
+            else:
+                for hit in deep_results:
+                    doc = mongo_collection.find_one({"milvus_id": hit.id})
+                    if doc:
+                        deep_mongo_docs.append({
+                            "_id": str(doc["_id"]),
+                            "score": float(hit.distance),
+                            "doc": doc
+                        })
+                        print(f"[4/7] DeepSVG match: ID={doc['_id']}, Score={hit.distance:.4f}")
+                    else:
+                        print(f"[WARNING] No MongoDB doc for Milvus ID={hit.id}")
         except Exception as e:
             print(f"[ERROR] Milvus search failed: {e}")
     else:
@@ -335,10 +355,12 @@ def combined_lookup():
             "score": float(score),
             "doc": doc
         })
-    alg_top_matches = sorted(alg_matches, key=lambda x: (-x["score"], x["_id"]))[:5]
-    print(f"[5/7] Algorithm top scores: {[m['score'] for m in alg_top_matches[:5]]}...")
+    
+    alg_top_matches = sorted(alg_matches, key=lambda x: (-x["score"], x["_id"]))[:10]
+    print(f"[5/7] Algorithm top scores: {[m['score'] for m in alg_top_matches[:10]]}...")
 
     # Sort both lists for stable comparison and selection
+    """
     deep_mongo_docs_sorted = sorted(deep_mongo_docs, key=lambda x: (-x["score"], x["_id"]))
     alg_top_matches_sorted = sorted(alg_top_matches, key=lambda x: (-x["score"], x["_id"]))
 
@@ -359,6 +381,33 @@ def combined_lookup():
             deep_top3_ids = set(doc["_id"] for doc in selected)
             unique_alg = [doc for doc in alg_top_matches_sorted if doc["_id"] not in deep_top3_ids]
             selected.extend(unique_alg[:2])
+"""
+
+    # Merge all unique IDs from both methods
+    all_ids = set([doc["_id"] for doc in deep_mongo_docs] + [doc["_id"] for doc in alg_matches])
+
+    fusion_candidates = []
+    for doc_id in all_ids:
+        deep_score = next((d["score"] for d in deep_mongo_docs if d["_id"] == doc_id), 0)
+        alg_score = next((a["score"] for a in alg_matches if a["_id"] == doc_id), 0)
+        doc = next((d["doc"] for d in deep_mongo_docs if d["_id"] == doc_id), None)
+        if not doc:
+            doc = next((a["doc"] for a in alg_matches if a["_id"] == doc_id), None)
+        fusion_candidates.append({
+            "_id": doc_id,
+            "deep_score": deep_score,
+            "alg_score": alg_score,
+            "doc": doc
+        })
+
+    deep_scores = [c["deep_score"] for c in fusion_candidates]
+    alg_scores = [c["alg_score"] for c in fusion_candidates]
+    fused_scores = quality_weighted_fusion(deep_scores, alg_scores)
+
+    for i, candidate in enumerate(fusion_candidates):
+        candidate["fused_score"] = float(fused_scores[i])
+
+    selected = sorted(fusion_candidates, key=lambda x: -x["fused_score"])[:5]
 
     print(f"[7/7] Returning {len(selected)} results")
 
@@ -385,7 +434,7 @@ def combined_lookup():
             # "companyUrl": f"https://example.com/brand/{mongo_id}",
             "companyName": company_name,
             "companyUrl": company_url,
-            "score": round(item["score"], 4)
+            "score": round(item.get("fused_score", item.get("score", 0)), 4)
         })
 
     print(f"[7/7] Returning {len(results)} results")

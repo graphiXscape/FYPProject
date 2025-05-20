@@ -139,6 +139,11 @@ def load_and_encode(svg_path):
         return None, False
 
 # Helper: Join all paths in SVG into one Path object
+def order_points(points):
+    center = np.mean(points, axis=0)
+    angles = np.arctan2(points[:,1] - center[1], points[:,0] - center[0])
+    return points[np.argsort(angles)]
+
 def join_svg_paths(svg_file):
     paths, _ = svg2paths(svg_file)
     combined_path = Path()
@@ -155,7 +160,8 @@ def parse_svg(svg_path, num_samples=250):
     for distance in sample_distances:
         point = path.point(distance / total_length)
         sampled_points.append((point.real, point.imag))
-    return np.array(sampled_points)
+    points = order_points(np.array(sampled_points))
+    return points
 
 def load_and_encode_ab(svg_path):
     try:
@@ -313,8 +319,8 @@ def combined_lookup():
         return jsonify({'error': 'No file uploaded'}), 400
 
     file = request.files['logo']
-    # if file.filename.endswith('.png') or file.filename.endswith('.jpg'):
-    #     return png_logo_lookup(file)
+    if file.filename.endswith('.png') or file.filename.endswith('.jpg'): #------------------------------SWITCH TO PNG
+        return png_logo_lookup(file)
     if not file or file.filename == '' or not file.filename.endswith('.svg'):
         print(f"[ERROR] Invalid file: {file.filename if file else 'None'}")
         return jsonify({'error': 'Only SVG files are allowed'}), 400
@@ -487,271 +493,229 @@ def combined_lookup():
     return jsonify({"matches": results})
 
 
-# #########################
+
+### ---- More Helper Functions for PNG LOGO LOOKUP---- ###
+
+# ---- Handles Vectorization ---- #
+import vtracer
+def convert_png_to_svg(input_path, output_path):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    if os.path.isfile(input_path):
+        print(f"Processing {input_path}...")
+        vtracer.convert_image_to_svg_py(
+            input_path, output_path,
+            colormode='color',
+            hierarchical='stacked',
+            mode='spline',
+            filter_speckle=4,
+            color_precision=6,
+            layer_difference=16,
+            corner_threshold=60,
+            length_threshold=4.0,
+            max_iterations=10,
+            splice_threshold=45,
+            path_precision=3
+        )
+        print(f"Saved {output_path}")
+
+# ---- Handles Preprocessing of SVGs--- # 
+import re
+from xml.dom import minidom
+from svgpathtools import parse_path
+
+def apply_translate_to_path(path: Path, dx: float, dy: float) -> Path:
+    translated = Path()
+    for segment in path:
+        seg = segment.translated(complex(dx, dy))
+        translated.append(seg)
+    return translated
+
+def parse_translate(transform: str):
+    match = re.search(r"translate\(([^,]+),\s*([^)]+)\)", transform)
+    if match:
+        dx = float(match.group(1))
+        dy = float(match.group(2))
+        return dx, dy
+    return 0.0, 0.0
+
+# Applies only translate transforms for now and writes output to a given file
+def apply_transforms_to_svg_paths(input_svg_path: str, output_svg_path: str):
+    doc = minidom.parse(input_svg_path)
+    path_tags = doc.getElementsByTagName('path')
+
+    for node in path_tags:
+        d_attr = node.getAttribute('d')
+        transform_attr = node.getAttribute('transform')
+        path = parse_path(d_attr)
+
+        if transform_attr:
+            dx, dy = parse_translate(transform_attr)
+            path = apply_translate_to_path(path, dx, dy)
+            node.setAttribute('d', path.d())
+            node.removeAttribute('transform')
+
+    with open(output_svg_path, 'w') as f:
+        doc.writexml(f)
+    doc.unlink()
+
+# Main processing pipeline that overwrites the given output file
+def process_vectorized_svg(input_path: str, output_path: str):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    if os.path.isfile(input_path) and input_path.lower().endswith(".svg"):
+        print(f"Processing {input_path}...")
+
+        apply_transforms_to_svg_paths(input_path, output_path)
+
+        # Future transformations (placeholders):
+        # remove_overlaps(output_path)
+        # remove_border_path(output_path)
+        # remove_insignificant_paths(output_path)
+        # apply_deepSVG_cleaning(output_path)
+
+        print(f"Saved processed SVG to {output_path}")
 
 
-# # DATASET_DIR = "./dataset/Registered_Dataset_simplified"
-# # PNG_OUTPUT_DIR = "./dataset/rendered_pngs"
-
-# # os.makedirs(PNG_OUTPUT_DIR, exist_ok=True)
-
-# # ---- Helper Functions ---- #
-
-
-# # ---- Handles Vectorization ---- #
-# import vtracer
-
-# def convert_png_to_svg(input_path, output_path):
-#     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-#     if os.path.isfile(input_path):
-#         print(f"Processing {input_path}...")
-#         vtracer.convert_image_to_svg_py(
-#             input_path, output_path,
-#             colormode='color',
-#             hierarchical='stacked',
-#             mode='spline',
-#             filter_speckle=4,
-#             color_precision=6,
-#             layer_difference=16,
-#             corner_threshold=60,
-#             length_threshold=4.0,
-#             max_iterations=10,
-#             splice_threshold=45,
-#             path_precision=3
-#         )
-#         print(f"Saved {output_path}")
-
-# # ---- Handles Preprocessing of SVGs--- # 
-# import re
-# from xml.dom import minidom
-# from svgpathtools import parse_path
-
-# def apply_translate_to_path(path: Path, dx: float, dy: float) -> Path:
-#     translated = Path()
-#     for segment in path:
-#         seg = segment.translated(complex(dx, dy))
-#         translated.append(seg)
-#     return translated
-
-# def parse_translate(transform: str):
-#     match = re.search(r"translate\(([^,]+),\s*([^)]+)\)", transform)
-#     if match:
-#         dx = float(match.group(1))
-#         dy = float(match.group(2))
-#         return dx, dy
-#     return 0.0, 0.0
-
-# # Applies only translate transforms for now and writes output to a given file
-# def apply_transforms_to_svg_paths(input_svg_path: str, output_svg_path: str):
-#     doc = minidom.parse(input_svg_path)
-#     path_tags = doc.getElementsByTagName('path')
-
-#     for node in path_tags:
-#         d_attr = node.getAttribute('d')
-#         transform_attr = node.getAttribute('transform')
-#         path = parse_path(d_attr)
-
-#         if transform_attr:
-#             dx, dy = parse_translate(transform_attr)
-#             path = apply_translate_to_path(path, dx, dy)
-#             node.setAttribute('d', path.d())
-#             node.removeAttribute('transform')
-
-#     with open(output_svg_path, 'w') as f:
-#         doc.writexml(f)
-#     doc.unlink()
-
-# # Main processing pipeline that overwrites the given output file
-# def process_vectorized_svg(input_path: str, output_path: str):
-#     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-#     if os.path.isfile(input_path) and input_path.lower().endswith(".svg"):
-#         print(f"Processing {input_path}...")
-
-#         apply_transforms_to_svg_paths(input_path, output_path)
-
-#         # Future transformations (placeholders):
-#         # remove_overlaps(output_path)
-#         # remove_border_path(output_path)
-#         # remove_insignificant_paths(output_path)
-#         # apply_deepSVG_cleaning(output_path)
-
-#         print(f"Saved processed SVG to {output_path}")
-
-# # ---- Handles SVG to Point Cloud conversion---- #
-# def order_points(points):
-#     center = np.mean(points, axis=0)
-#     angles = np.arctan2(points[:,1] - center[1], points[:,0] - center[0])
-#     return points[np.argsort(angles)]
-
-# def join_svg_paths(svg_file):                # --------------SAME AS BEFORE--------------
-#     paths, _ = svg2paths(svg_file)
-#     combined_path = Path()
-#     for path in paths:
-#         combined_path.extend(path)
-#     return combined_path
-
-# def parse_svg(svg_path, num_samples=250):
-#     path = join_svg_paths(svg_path)
-#     total_length = path.length()
-#     sample_distances = np.linspace(0, total_length, num_samples)
-#     sampled_points = []
-#     for distance in sample_distances:
-#         point = path.point(distance / total_length)
-#         sampled_points.append((point.real, point.imag))
-#     points = order_points(np.array(sampled_points))     # --------------SMALL CHANGE - ordering--------------               
-#     return points
-
-# def load_and_encode(svg_path): # --------------MAYBE SAME AS BEFORE--------------
-#     try:
-#         return parse_svg(svg_path)
-#     except Exception as e:
-#         print(f"Encoding failed for {svg_path}: {e}")
-#         return None
+# ---- Handles Other Similarity Computations ---- #    
     
-# # ---- Handles Similarity Computations ---- #    
+# Hausdorff distance
+def center_shape(points):
+    centroid = np.mean(points, axis=0)
+    return points - centroid
 
-# # Procrustes analysis
-# def compute_procrustes_similarity(shape1, shape2):   # --------------SAME AS BEFORE--------------
-#     try:
-#         _, _, disparity = procrustes(shape1, shape2)
-#         return 1 / (1 + disparity)
-#     except Exception as e:
-#         print(f"Procrustes comparison failed: {e}")
-#         return 0
+def scale_to_unit_size(points):
+    min_coords = np.min(points, axis=0)
+    max_coords = np.max(points, axis=0)
+    width, height = max_coords - min_coords
+    scale_factor = 1 / max(width, height)
+    return points * scale_factor
+
+def align_orientation(points):
+    pca = PCA(n_components=2)
+    pca.fit(points)
+    principal_axis = pca.components_[0]
+    angle = np.arctan2(principal_axis[1], principal_axis[0])
+    rotation_matrix = np.array([
+        [np.cos(-angle), -np.sin(-angle)],
+        [np.sin(-angle), np.cos(-angle)]
+    ])
+    return points @ rotation_matrix.T
+
+def normalize_shape(points):
+    points = center_shape(points)
+    points = align_orientation(points) 
+    points = scale_to_unit_size(points)
+    return points
+
+from scipy.spatial.distance import directed_hausdorff
+def compute_hausdorff_similarity(shape1, shape2):
+    shape1 = normalize_shape(shape1)
+    shape2 = normalize_shape(shape2)
+
+    forward_distance = directed_hausdorff(shape1, shape2)[0]
+    reverse_distance = directed_hausdorff(shape2, shape1)[0]
+    hausdorff_distance = max(forward_distance, reverse_distance)
+    similarity = 1 / (1 + hausdorff_distance)
+    return similarity
+
+#####################
+
+def png_logo_lookup(file):
     
-# # Hausdorff distance
-# def center_shape(points):
-#     centroid = np.mean(points, axis=0)
-#     return points - centroid
+    print("\n=== New PNG Logo Lookup Request ===")
+    print(f"[1/7] Received file: {file.filename}")
 
-# def scale_to_unit_size(points):
-#     min_coords = np.min(points, axis=0)
-#     max_coords = np.max(points, axis=0)
-#     width, height = max_coords - min_coords
-#     scale_factor = 1 / max(width, height)
-#     return points * scale_factor
+    temp_id = str(uuid.uuid4())
+    temp_png_path = f"./temp/{temp_id}.png"
+    temp_svg_raw_path = f"./temp/{temp_id}_raw.svg"
+    temp_svg_path = f"./temp/{temp_id}.svg"
+    os.makedirs("./temp", exist_ok=True)
+    file.save(temp_png_path)
+    print(f"[2/7] Saved temporary PNG: {temp_png_path}")
 
-# def align_orientation(points):
-#     pca = PCA(n_components=2)
-#     pca.fit(points)
-#     principal_axis = pca.components_[0]
-#     angle = np.arctan2(principal_axis[1], principal_axis[0])
-#     rotation_matrix = np.array([
-#         [np.cos(-angle), -np.sin(-angle)],
-#         [np.sin(-angle), np.cos(-angle)]
-#     ])
-#     return points @ rotation_matrix.T
+    try:
+        try:
+            print("[3/7] Converting PNG to SVG...")
+            convert_png_to_svg(temp_png_path, temp_svg_raw_path)
+            print(f"[3/7] Raw SVG saved to: {temp_svg_raw_path}")
+        except Exception as e:
+            print(f"[ERROR] PNG to SVG conversion failed: {e}")
+            return jsonify({'error': f'PNG to SVG conversion failed: {str(e)}'}), 500
 
-# def normalize_shape(points):
-#     points = center_shape(points)
-#     points = align_orientation(points) 
-#     points = scale_to_unit_size(points)
-#     return points
-
-# from scipy.spatial.distance import directed_hausdorff
-# def compute_hausdorff_similarity(shape1, shape2):
-#     shape1 = normalize_shape(shape1)
-#     shape2 = normalize_shape(shape2)
-
-#     forward_distance = directed_hausdorff(shape1, shape2)[0]
-#     reverse_distance = directed_hausdorff(shape2, shape1)[0]
-#     hausdorff_distance = max(forward_distance, reverse_distance)
-#     similarity = 1 / (1 + hausdorff_distance)
-#     return similarity
+        # Step 4: Process vectorized SVG
+        try:
+            print("[4/7] Processing vectorized SVG...")
+            process_vectorized_svg(temp_svg_raw_path, temp_svg_path)
+            print(f"[4/7] Processed SVG saved to: {temp_svg_path}")
+        except Exception as e:
+            print(f"[ERROR] SVG processing failed: {e}")
+            return jsonify({'error': f'SVG processing failed: {str(e)}'}), 500
 
 
-# def png_logo_lookup(file):
-#     print("\n=== New PNG Logo Lookup Request ===")
-#     print(f"[1/6] Received file: {file.filename}")
+        try:
+            alg_vector = parse_svg(temp_svg_path) 
+            print(f"[5/7] Parsed algorithm vector: {len(alg_vector)} points")
+        except Exception as e:
+            os.remove(temp_svg_path)
+            print(f"[ERROR] Algorithmic parsing failed: {e}")
+            return jsonify({'error': 'SVG parsing failed'}), 500
 
-#     temp_id = str(uuid.uuid4())
-#     temp_png_path = f"./temp/{temp_id}.png"
-#     temp_svg_raw_path = f"./temp/{temp_id}_raw.svg"
-#     temp_svg_path = f"./temp/{temp_id}.svg"
-#     os.makedirs("./temp", exist_ok=True)
-#     file.save(temp_png_path)
-#     print(f"[2/6] Saved temporary PNG: {temp_png_path}")
+        # Algorithm-based matching
+        print("[6/7] Running Procrustes-based search...")
+        alg_matches = []
+        for doc in mongo_collection.find({}, {"parsed_coordinates": 1, "svg_content": 1, "companyName": 1, "websiteURL": 1}):
+            if "parsed_coordinates" not in doc or not doc["parsed_coordinates"]:
+                print(f"[WARNING] Skipping doc {doc.get('_id')} - missing or empty 'parsed_coordinates'")
+                continue
+            score = compute_hausdorff_similarity(alg_vector, np.array(doc["parsed_coordinates"]))
+            # score = compute_procrustes_similarity(alg_vector, np.array(doc["parsed_coordinates"]))
+            alg_matches.append({
+                "_id": str(doc["_id"]),
+                "score": float(score),
+                "doc": doc
+            })
 
-#     try:
-#         # Step 3: PNG to SVG conversion
-#         try:
-#             print("[3/6] Converting PNG to SVG...")
-#             convert_png_to_svg(temp_png_path, temp_svg_raw_path)
-#             print(f"[3/6] Raw SVG saved to: {temp_svg_raw_path}")
-#         except Exception as e:
-#             print(f"[ERROR] PNG to SVG conversion failed: {e}")
-#             return jsonify({'error': f'PNG to SVG conversion failed: {str(e)}'}), 500
+        alg_top_matches = sorted(alg_matches, key=lambda x: (-x["score"], x["_id"]))[:5]
+        print(f"[6/7] Top Procrustes scores: {[m['score'] for m in alg_top_matches]}")
 
-#         # Step 4: Process vectorized SVG
-#         try:
-#             print("[4/6] Processing vectorized SVG...")
-#             process_vectorized_svg(temp_svg_raw_path, temp_svg_path)
-#             print(f"[4/6] Processed SVG saved to: {temp_svg_path}")
-#         except Exception as e:
-#             print(f"[ERROR] SVG processing failed: {e}")
-#             return jsonify({'error': f'SVG processing failed: {str(e)}'}), 500
+        # Rendering SVGs to PNG and returning results
+        print("[7/7] Rendering PNGs and preparing results...")
+        results = []
+        for item in alg_top_matches:
+            doc = item["doc"]
+            mongo_id = str(doc["_id"])
 
-#         # Step 5: Load and encode
-#         print("[5/6] Loading and encoding SVG...")
-#         target_vector = load_and_encode(temp_svg_path)
-#         if target_vector is None:
-#             print("[ERROR] Failed to encode SVG.")
-#             return jsonify({'error': 'SVG encoding failed'}), 500
-#         print("[5/6] SVG encoding completed.")
+            try:
+                png_data = cairosvg.svg2png(bytestring=doc["svg_content"].encode('utf-8'))
+                b64_png = base64.b64encode(png_data).decode('utf-8')
+                print(f"[7/7] Rendered PNG for {mongo_id}")
+            except Exception as e:
+                print(f"[ERROR] Failed to render PNG for {mongo_id}: {str(e)}")
+                continue
 
-#         # Step 6: Similarity check
-#         print("[6/6] Computing similarities against dataset...")
-#         similarities = []
-#         for fname in os.listdir(DATASET_DIR):
-#             if not fname.endswith('.svg'):
-#                 continue
-#             candidate_path = os.path.join(DATASET_DIR, fname)
-#             candidate_vector = load_and_encode(candidate_path)
-#             if candidate_vector is None:
-#                 print(f"[WARNING] Skipping {fname} - failed to encode.")
-#                 continue
+            company_name = doc.get("companyName", "Unknown Company")
+            company_url = doc.get("websiteURL", f"https://example.com/brand/{mongo_id}")
 
-#             score = compute_hausdorff_similarity(target_vector, candidate_vector)
-#             similarities.append((fname, score, candidate_path))
+            results.append({
+                "logoUrl": f"data:image/png;base64,{b64_png}",
+                "companyName": company_name,
+                "companyUrl": company_url,
+                "score": round(item["score"], 4)
+            })
 
-#         similarities.sort(key=lambda x: x[1], reverse=True)
-#         top_matches = similarities[:3]
-#         print(f"[6/6] Top scores: {[round(s[1], 4) for s in top_matches]}")
+        return jsonify({"matches": results})
+    finally:
+        # Cleanup temp files
+        print("[CLEANUP] Deleting temporary files...")
+        for path in [temp_png_path, temp_svg_raw_path, temp_svg_path]:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                    print(f"[CLEANUP] Deleted: {path}")
+                except Exception as e:
+                    print(f"[CLEANUP ERROR] Failed to delete {path}: {e}")
+        print("[CLEANUP] Temporary files cleaned up.")
 
-#         results = []
-#         for fname, score, path in top_matches:
-#             png_name = fname.replace('.svg', '.png')
-#             png_path = os.path.join(PNG_OUTPUT_DIR, png_name)
-#             if not os.path.exists(png_path):
-#                 try:
-#                     cairosvg.svg2png(file_obj=open(path, "rb"), write_to=png_path)
-#                     print(f"[INFO] Rendered PNG: {png_name}")
-#                 except Exception as e:
-#                     print(f"[ERROR] Failed to render PNG for {fname}: {e}")
-#                     continue
-
-#             results.append({
-#                 "logoUrl": f"http://localhost:5000/static/{png_name}",
-#                 "companyUrl": f"https://example.com/brand/{fname.replace('.svg','')}",
-#                 "score": round(score, 4)
-#             })
-
-#         print(f"[COMPLETE] Returning {len(results)} match(es) for {file.filename}")
-#         return jsonify({'matches': results})
-
-#     finally:
-#         # Cleanup temp files
-#         print("[CLEANUP] Deleting temporary files...")
-#         for path in [temp_png_path, temp_svg_raw_path, temp_svg_path]:
-#             if os.path.exists(path):
-#                 try:
-#                     os.remove(path)
-#                     print(f"[CLEANUP] Deleted: {path}")
-#                 except Exception as e:
-#                     print(f"[CLEANUP ERROR] Failed to delete {path}: {e}")
-#         print("[CLEANUP] Temporary files cleaned up.")
-
-# ##########################
+########################
 
 
 # Run only once

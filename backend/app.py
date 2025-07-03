@@ -466,7 +466,6 @@ def combined_lookup():
     print("[6/7] Computing fused scores with color similarity...")
 
     for i, candidate in enumerate(fusion_candidates):
-        print(f"[6/7] Processing candidate {i+1} of {len(fusion_candidates)}") #-------------------------------------------
         doc_svg_content = candidate["doc"]["svg_content"]
         with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as temp_svg_file:
             temp_svg_file.write(doc_svg_content.encode('utf-8'))
@@ -491,8 +490,8 @@ def combined_lookup():
 
         candidate["fused_score"] = float(final_score)
 
-        print(f"[FUSION] {candidate['_id']} - Deep: {candidate['deep_score']:.3f}, Alg: {candidate['alg_score']:.3f}, "
-            f"Color: {color_score:.3f} → Final Score: {final_score:.3f}")
+        # print(f"[FUSION] {candidate['_id']} - Deep: {candidate['deep_score']:.3f}, Alg: {candidate['alg_score']:.3f}, "
+        #     f"Color: {color_score:.3f} → Final Score: {final_score:.3f}")
 
     #############
     selected = sorted(fusion_candidates, key=lambda x: -x["fused_score"])[:5]
@@ -801,9 +800,6 @@ def compare_svg_colors(svg1, svg2, threshold=2.3):
     colors1 = extract_colors(svg1)
     colors2 = extract_colors(svg2)
 
-    print(f"\nColors in {svg1}: {colors1}")
-    print(f"Colors in {svg2}: {colors2}\n")
-
     total = len(colors1)
     matched = 0
 
@@ -819,21 +815,9 @@ def compare_svg_colors(svg1, svg2, threshold=2.3):
         return 0.0
 
     similarity_score = matched / total
-    print(f"Similarity Score: {similarity_score:.2f} ({matched}/{total} colors matched)")
     return similarity_score
 
-# Example usage
-# compare_svg_colors('../dataset/successful_svgs_125/303108_google-icon-logo.svg', '../dataset/successful_svgs_125/303113_facebook-icon-logo.svg')
-
 #######################################
-
-
-
-
-
-
-
-
 
 # Run only once
 if __name__ == '__main__':

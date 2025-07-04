@@ -5,6 +5,7 @@ import os
 import uuid
 import io
 import base64
+import tempfile
 
 # =========================
 # Flask and Web
@@ -426,7 +427,7 @@ def combined_lookup():
 """
 
     # Merge all unique IDs from both methods
-    all_ids = set([doc["_id"] for doc in deep_mongo_docs] + [doc["_id"] for doc in alg_matches])
+    all_ids = set([doc["_id"] for doc in deep_mongo_docs] + [doc["_id"] for doc in alg_top_matches])
 
     fusion_candidates = []
     for doc_id in all_ids:
@@ -442,16 +443,61 @@ def combined_lookup():
             "doc": doc
         })
 
+    # deep_scores = [c["deep_score"] for c in fusion_candidates]
+    # alg_scores = [c["alg_score"] for c in fusion_candidates]
+    # fused_scores = quality_weighted_fusion(deep_scores, alg_scores)
+
+    # for i, candidate in enumerate(fusion_candidates):
+    #     candidate["fused_score"] = float(fused_scores[i])
+
+    # selected = sorted(fusion_candidates, key=lambda x: -x["fused_score"])[:5]
+
+    # print(f"[7/7] Returning {len(selected)} results")
+
+    ########################   START OF COLOUR COMPARISON  ADDED PIPELINE #################################  
+
     deep_scores = [c["deep_score"] for c in fusion_candidates]
     alg_scores = [c["alg_score"] for c in fusion_candidates]
-    fused_scores = quality_weighted_fusion(deep_scores, alg_scores)
+    fused_2d_scores = quality_weighted_fusion(deep_scores, alg_scores)
+    #############
+    COLOR_WEIGHT = 0.2  # tune as needed
+    COLOR_THRESHOLD = 0.7  # or tune as needed
+
+    print("[6/7] Computing fused scores with color similarity...")
 
     for i, candidate in enumerate(fusion_candidates):
-        candidate["fused_score"] = float(fused_scores[i])
+        doc_svg_content = candidate["doc"]["svg_content"]
+        with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as temp_svg_file:
+            temp_svg_file.write(doc_svg_content.encode('utf-8'))
+            temp_svg_file_path = temp_svg_file.name
 
+        try:
+            color_score = compare_svg_colors(temp_path, temp_svg_file_path)
+        except Exception as e:
+            print(f"[COLOR COMPARE ERROR] Failed for {candidate['_id']}: {e}")
+            color_score = 0
+        finally:
+            if os.path.exists(temp_svg_file_path):
+                os.remove(temp_svg_file_path)
+
+        candidate["color_score"] = color_score
+
+        # Only add color bonus if color_score >= threshold
+        if color_score >= COLOR_THRESHOLD:
+            final_score = fused_2d_scores[i] + COLOR_WEIGHT * (color_score - COLOR_THRESHOLD)
+        else:
+            final_score = fused_2d_scores[i]
+
+        candidate["fused_score"] = float(final_score)
+
+        # print(f"[FUSION] {candidate['_id']} - Deep: {candidate['deep_score']:.3f}, Alg: {candidate['alg_score']:.3f}, "
+        #     f"Color: {color_score:.3f} → Final Score: {final_score:.3f}")
+
+    #############
     selected = sorted(fusion_candidates, key=lambda x: -x["fused_score"])[:5]
-
     print(f"[7/7] Returning {len(selected)} results")
+
+    ############### END oF COLOUR COMP PIPELINE ##############################
 
     # PNG rendering
     print("[7/7] Rendering PNGs...")
@@ -717,6 +763,61 @@ def png_logo_lookup(file):
 
 ########################
 
+###########Colour Comparison############            
+
+import re
+from xml.etree import ElementTree as ET
+from colormath.color_objects import sRGBColor, LabColor
+from colormath.color_conversions import convert_color
+from colormath.color_diff import delta_e_cie2000
+
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.strip().lstrip('#')
+    if len(hex_color) == 3:
+        hex_color = ''.join([c*2 for c in hex_color])
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+def extract_colors(svg_path):
+    tree = ET.parse(svg_path)
+    root = tree.getroot()
+    fills = set()
+
+    for elem in root.iter():
+        for attr in ['fill', 'stroke']:
+            color = elem.attrib.get(attr)
+            if color and re.match(r'^#?[0-9a-fA-F]{3,6}$', color):
+                fills.add(color.lower())
+    return fills
+
+def color_difference(hex1, hex2):
+    rgb1 = sRGBColor(*hex_to_rgb(hex1), is_upscaled=True)
+    rgb2 = sRGBColor(*hex_to_rgb(hex2), is_upscaled=True)
+    lab1 = convert_color(rgb1, LabColor)
+    lab2 = convert_color(rgb2, LabColor)
+    return delta_e_cie2000(lab1, lab2)
+
+def compare_svg_colors(svg1, svg2, threshold=2.3):
+    colors1 = extract_colors(svg1)
+    colors2 = extract_colors(svg2)
+
+    total = len(colors1)
+    matched = 0
+
+    for color1 in colors1:
+        for color2 in colors2:
+            diff = color_difference(color1, color2)
+            if diff <= threshold:
+                matched += 1
+                break  # Only match once per color
+
+    if total == 0:
+        print("No colors found in first SVG.")
+        return 0.0
+
+    similarity_score = matched / total
+    return similarity_score
+
+#######################################
 
 # Run only once
 if __name__ == '__main__':

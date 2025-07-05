@@ -214,7 +214,7 @@ def register_logo():
                 for hit in search_results:
                     if hit.distance >= 0.9:  # Cosine similarity threshold
                         os.remove(svg_path)
-                        return jsonify({'message': 'Registration failed: Similar logo already exists.'}), 409
+                        return jsonify({'message': 'Registration failed: Similar logo already exists. Check existing logos in the Lookup'}), 409
             except Exception as e:
                 print(f"Milvus similarity check failed: {e}")
         else:
@@ -228,7 +228,7 @@ def register_logo():
                     score = compute_procrustes_similarity(target_vector, np.array(doc["parsed_coordinates"]))
                     if score >= 0.9:
                         os.remove(svg_path)
-                        return jsonify({'message': 'Registration failed: Similar logo already exists (Procrustes similarity ≥ 0.9).'}), 409
+                        return jsonify({'message': 'Registration failed: Similar logo already exists (Procrustes similarity ≥ 0.9). Check existing logos in the Lookup'}), 409
             except Exception as e:
                 print(f"Procrustes similarity check failed: {e}")
 

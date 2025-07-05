@@ -214,7 +214,7 @@ def register_logo():
                 for hit in search_results:
                     if hit.distance >= 0.9:  # Cosine similarity threshold
                         os.remove(svg_path)
-                        return jsonify({'message': 'Registration failed: Similar logo already exists.'}), 409
+                        return jsonify({'message': 'Registration failed: Similar logo already exists. Check existing logos in the Lookup'}), 409
             except Exception as e:
                 print(f"Milvus similarity check failed: {e}")
         else:
@@ -228,7 +228,7 @@ def register_logo():
                     score = compute_procrustes_similarity(target_vector, np.array(doc["parsed_coordinates"]))
                     if score >= 0.9:
                         os.remove(svg_path)
-                        return jsonify({'message': 'Registration failed: Similar logo already exists (Procrustes similarity ≥ 0.9).'}), 409
+                        return jsonify({'message': 'Registration failed: Similar logo already exists (Procrustes similarity ≥ 0.9). Check existing logos in the Lookup'}), 409
             except Exception as e:
                 print(f"Procrustes similarity check failed: {e}")
 
@@ -490,9 +490,6 @@ def combined_lookup():
             final_score = fused_2d_scores[i]
 
         candidate["fused_score"] = float(final_score)
-
-        print(f"[FUSION] {candidate['_id']} - Deep: {candidate['deep_score']:.3f}, Alg: {candidate['alg_score']:.3f}, "
-            f"Color: {color_score:.3f} → Final Score: {final_score:.3f}")
 
     #############
     selected = sorted(fusion_candidates, key=lambda x: -x["fused_score"])[:5]
@@ -807,9 +804,6 @@ def compare_svg_colors(svg1, svg2, threshold=2.3):
     colors1 = extract_colors(svg1)
     colors2 = extract_colors(svg2)
 
-    print(f"\nColors in {svg1}: {colors1}")
-    print(f"Colors in {svg2}: {colors2}\n")
-
     total = len(colors1)
     matched = 0
 
@@ -825,11 +819,7 @@ def compare_svg_colors(svg1, svg2, threshold=2.3):
         return 0.0
 
     similarity_score = matched / total
-    print(f"Similarity Score: {similarity_score:.2f} ({matched}/{total} colors matched)")
     return similarity_score
-
-# Example usage
-# compare_svg_colors('../dataset/successful_svgs_125/303108_google-icon-logo.svg', '../dataset/successful_svgs_125/303113_facebook-icon-logo.svg')
 
 #######################################
 

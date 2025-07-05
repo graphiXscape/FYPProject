@@ -298,15 +298,26 @@ def z_score_normalize(scores):
         return np.zeros_like(scores)
     return (scores - mean) / std
 
+def min_max_normalize(scores):
+    scores = np.array(scores)
+    min_val = np.min(scores)
+    max_val = np.max(scores)
+    if max_val == min_val:
+        return np.ones_like(scores) 
+    return (scores - min_val) / (max_val - min_val)
+
 def quality_weighted_fusion(deep_scores, alg_scores):
     deep_norm = z_score_normalize(deep_scores)
     alg_norm = z_score_normalize(alg_scores)
+    # deep_norm = min_max_normalize(deep_scores)   #----------
+    # alg_norm = min_max_normalize(alg_scores)     #----------
     deep_quality = 1.0 / (np.var(deep_norm) + 1e-6)
     alg_quality = 1.0 / (np.var(alg_norm) + 1e-6)
     total_quality = deep_quality + alg_quality
     deep_weight = deep_quality / total_quality
     alg_weight = alg_quality / total_quality
     fused_scores = deep_weight * deep_norm + alg_weight * alg_norm
+    # fused_scores = np.clip(fused_scores, 0.0, 1.0)   #------------
     return fused_scores
 
 # Combined lookup endpoint
@@ -488,6 +499,7 @@ def combined_lookup():
         else:
             final_score = fused_2d_scores[i]
 
+        #final_score = max(0.0, min(1.0, final_score)) # Ensure range is [0,1]
         candidate["fused_score"] = float(final_score)
 
         # print(f"[FUSION] {candidate['_id']} - Deep: {candidate['deep_score']:.3f}, Alg: {candidate['alg_score']:.3f}, "

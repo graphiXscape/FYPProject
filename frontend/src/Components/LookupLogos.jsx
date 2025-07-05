@@ -78,11 +78,15 @@ const Lookup = () => {
             {results.map((item, idx) => (
               <div key={idx} className="result-card">
                 <img src={item.logoUrl} alt={`Match ${idx + 1}`} />
-                <a href={item.companyUrl} target="_blank" rel="noopener noreferrer">
-                  {item.companyUrl}
-                </a>
+                <div className="result-info">
+                  <a href={item.companyUrl} target="_blank" rel="noopener noreferrer">
+                    {item.companyName || item.companyUrl}
+                  </a>
+                  <p>Score: {item.score}</p>
+                </div>
               </div>
             ))}
+
           </div>
         </div>
       )}

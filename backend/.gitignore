@@ -6,3 +6,5 @@ logs/
 gui_data/
 temp/
 uploads/
+*.xlsx
+New.py

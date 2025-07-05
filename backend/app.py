@@ -161,8 +161,8 @@ def parse_svg(svg_path, num_samples=250):
     for distance in sample_distances:
         point = path.point(distance / total_length)
         sampled_points.append((point.real, point.imag))
-    points = order_points(np.array(sampled_points))
-    return points
+    #points = order_points(np.array(sampled_points))
+    return np.array(sampled_points)
 
 def load_and_encode_ab(svg_path):
     try:

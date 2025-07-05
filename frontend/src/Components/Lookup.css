@@ -106,4 +106,29 @@
   color: #555;
 }
 
+.score-high {
+  background-color: #c0eecb; /* light green */
+}
+
+.score-medium {
+  background-color: #fff3cd; /* light yellow */
+}
+
+.score-low {
+  background-color: #f8d7da; /* light red */
+}
+
+.result-card {
+  padding: 1rem;
+  border-radius: 10px;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.1);
+  transition: background-color 0.3s ease;
+}
+
+.result-info {
+  margin-top: 0.5rem;
+}
+
+
+
   

@@ -76,7 +76,16 @@ const Lookup = () => {
           <h3>Top Matches</h3>
           <div className="results-grid">
             {results.map((item, idx) => (
-              <div key={idx} className="result-card">
+              <div
+                key={idx}
+                className={`result-card ${
+                  item.score > 0.9
+                    ? 'score-high'
+                    : item.score >= 0.6
+                    ? 'score-medium'
+                    : 'score-low'
+                }`}
+              >
                 <img src={item.logoUrl} alt={`Match ${idx + 1}`} />
                 <div className="result-info">
                   <a href={item.companyUrl} target="_blank" rel="noopener noreferrer">
@@ -85,6 +94,7 @@ const Lookup = () => {
                   <p>Score: {item.score}</p>
                 </div>
               </div>
+
             ))}
 
           </div>

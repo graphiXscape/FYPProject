@@ -91,7 +91,7 @@ const Lookup = () => {
                   <a href={item.companyUrl} target="_blank" rel="noopener noreferrer">
                     {item.companyName || item.companyUrl}
                   </a>
-                  <p>Score: {item.score}</p>
+                  <p>Score: {Math.min(1, Math.max(0, item.score))}</p>
                 </div>
               </div>
 

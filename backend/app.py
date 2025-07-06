@@ -6,6 +6,7 @@ import uuid
 import io
 import base64
 import tempfile
+from werkzeug.utils import secure_filename
 
 # =========================
 # Flask and Web
@@ -104,7 +105,8 @@ connections.connect(uri=ENDPOINT, token=TOKEN)
 # print("Connected to Zilliz Cloud!")
 
 # Load existing collection
-collection_name = "fyp_project"
+collection_name = "test_deploy" # for 3000 logos
+# collection_name = "image_133" #for 133 logos colored
 collection = Collection(name=collection_name)
 
 
@@ -115,7 +117,8 @@ try:
     mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     mongo_client.server_info()  # Force connection check
     print(  mongo_client.server_info() )
-    mongo_db = mongo_client["logoDB"]             # your DB name
+    mongo_db = mongo_client["logotest"]  
+    # mongo_db = mongo_client["logoDB133colored"]           # your DB name
     mongo_collection = mongo_db["logos"]          # your collection name
     print("✅ MongoDB Atlas connection established successfully.")
 except pymongo.errors.ServerSelectionTimeoutError as err:
@@ -140,10 +143,10 @@ def load_and_encode(svg_path):
         return None, False
 
 # Helper: Join all paths in SVG into one Path object
-def order_points(points):
-    center = np.mean(points, axis=0)
-    angles = np.arctan2(points[:,1] - center[1], points[:,0] - center[0])
-    return points[np.argsort(angles)]
+# def order_points(points):
+#     center = np.mean(points, axis=0)
+#     angles = np.arctan2(points[:,1] - center[1], points[:,0] - center[0])
+#     return points[np.argsort(angles)]
 
 def join_svg_paths(svg_file):
     paths, _ = svg2paths(svg_file)
@@ -161,7 +164,6 @@ def parse_svg(svg_path, num_samples=250):
     for distance in sample_distances:
         point = path.point(distance / total_length)
         sampled_points.append((point.real, point.imag))
-    #points = order_points(np.array(sampled_points))
     return np.array(sampled_points)
 
 def load_and_encode_ab(svg_path):
@@ -181,6 +183,7 @@ def register_logo():
         return jsonify({'error': 'No files received'}), 400
 
     results = []
+    failed_files = []
 
     for file in uploaded_files:
         if not file or file.filename == '' or not file.filename.endswith('.svg'):
@@ -189,95 +192,636 @@ def register_logo():
         logo_id = str(uuid.uuid4())
         svg_filename = f"{logo_id}.svg"
         svg_path = os.path.join(DATASET_DIR, svg_filename)
+        
+        original_filename = secure_filename(file.filename)
+        
+        print(f"🔄 Processing file: {file.filename}")
 
-        file.save(svg_path)
-
-        embedding, is_deepsvg_successful = load_and_encode(svg_path)
-        if not is_deepsvg_successful:
-            print(f"DeepSVG failed for {file.filename}. Proceeding with fallback...")
-
-        target_vector = load_and_encode_ab(svg_path)
-        if target_vector is None:
-            os.remove(svg_path)
+        try:
+            file.save(svg_path)
+        except Exception as e:
+            error_msg = f"Failed to save file {file.filename}: {str(e)}"
+            print(f"❌ {error_msg}")
+            log_failed_registration(file.filename, error_msg, "file_save")
+            failed_files.append({
+                "filename": file.filename,
+                "error": error_msg,
+                "stage": "file_save"
+            })
             continue
 
-        """begin:Similarity Check"""
+        # DeepSVG encoding
+        embedding, is_deepsvg_successful = load_and_encode(svg_path)
+        if not is_deepsvg_successful:
+            print(f"⚠️ DeepSVG failed for {file.filename}. Proceeding with fallback...")
+
+        # Algorithm-based encoding
+        target_vector = load_and_encode_ab(svg_path)
+        if target_vector is None:
+            error_msg = f"Algorithm-based encoding failed for {file.filename}"
+            print(f"❌ {error_msg}")
+            log_failed_registration(file.filename, error_msg, "algorithm_encoding")
+            failed_files.append({
+                "filename": file.filename,
+                "error": error_msg,
+                "stage": "algorithm_encoding"
+            })
+            # Move failed file to failed_registrations folder
+            failed_file_path = os.path.join(FAILED_FILES_DIR, f"{logo_id}_{file.filename}")
+            try:
+                import shutil
+                shutil.move(svg_path, failed_file_path)
+                print(f"📁 Moved failed file to: {failed_file_path}")
+            except Exception as move_error:
+                print(f"⚠️ Failed to move file {file.filename}: {move_error}")
+                os.remove(svg_path)
+            continue
+
+        # Similarity Check with stricter thresholds
+        similarity_check_passed = True
+        similar_logos_info = []
+        try:
+            # DeepSVG similarity check with threshold 0.98
+            if is_deepsvg_successful:
+                try:
+                    search_results = collection.search(
+                        data=[embedding],
+                        anns_field="vector",
+                        param={"metric_type": "COSINE"},
+                        limit=5,  # Get top 5 similar logos
+                        output_fields=["milvus_id"]
+                    )[0]
+                    for hit in search_results:
+                        if hit.distance >= 0.98:  # DeepSVG similarity threshold: 0.98
+                            # Get detailed info about the similar logo
+                            similar_doc = mongo_collection.find_one({"milvus_id": hit.id})
+                            if similar_doc:
+                                # Convert SVG to base64 PNG for display
+                                logo_image = None
+                                try:
+                                    import cairosvg
+                                    png_data = cairosvg.svg2png(bytestring=similar_doc["svg_content"].encode('utf-8'))
+                                    b64_png = base64.b64encode(png_data).decode('utf-8')
+                                    logo_image = f"data:image/png;base64,{b64_png}"
+                                except Exception as e:
+                                    print(f"Failed to render logo image for {similar_doc.get('_id')}: {e}")
+                                
+                                similar_logos_info.append({
+                                    "logo_id": str(similar_doc.get("_id")),
+                                    "company_name": similar_doc.get("companyName", "Unknown Company"),
+                                    "website_url": similar_doc.get("websiteURL", ""),
+                                    "similarity_score": float(hit.distance),
+                                    "method": "DeepSVG",
+                                    "logo_image": logo_image
+                                })
+                            similarity_check_passed = False
+                            error_msg = f"Registration failed: Similar logo already exists"
+                            break
+                except Exception as e:
+                    print(f"⚠️ Milvus similarity check failed: {e}")
+            else:
+                print(f"⚠️ DeepSVG encoding failed for {file.filename}. Skipping DeepSVG similarity check.")
+
+            # Procrustes similarity check with threshold 0.95
+            if similarity_check_passed:
+                for doc in mongo_collection.find({}, {"parsed_coordinates": 1, "companyName": 1, "file_name": 1, "svg_content": 1, "websiteURL": 1}):
+                    if "parsed_coordinates" not in doc:
+                        continue
+                    score = compute_procrustes_similarity(target_vector, np.array(doc["parsed_coordinates"]))
+                    if score >= 0.95:  # Procrustes similarity threshold: 0.95
+                        # Convert SVG to base64 PNG for display
+                        logo_image = None
+                        try:
+                            import cairosvg
+                            png_data = cairosvg.svg2png(bytestring=doc["svg_content"].encode('utf-8'))
+                            b64_png = base64.b64encode(png_data).decode('utf-8')
+                            logo_image = f"data:image/png;base64,{b64_png}"
+                        except Exception as e:
+                            print(f"Failed to render logo image for {doc.get('_id')}: {e}")
+                        
+                        similar_logos_info.append({
+                            "logo_id": str(doc.get("_id")),
+                            "company_name": doc.get("companyName", "Unknown Company"),
+                            "website_url": doc.get("websiteURL", ""),
+                            "similarity_score": float(score),
+                            "method": "Procrustes",
+                            "logo_image": logo_image
+                        })
+                        similarity_check_passed = False
+                        error_msg = f"Registration failed: Similar logo already exists"
+                        break
+        except Exception as e:
+            print(f"⚠️ Similarity check failed: {e}")
+
+        if not similarity_check_passed:
+            print(f"❌ {error_msg}")
+            log_failed_registration(file.filename, error_msg, "similarity_check")
+            failed_files.append({
+                "filename": file.filename,
+                "error": error_msg,
+                "stage": "similarity_check",
+                "similar_logos": similar_logos_info
+            })
+            # Move failed file to failed_registrations folder
+            failed_file_path = os.path.join(FAILED_FILES_DIR, f"{logo_id}_{file.filename}")
+            try:
+                import shutil
+                shutil.move(svg_path, failed_file_path)
+                print(f"📁 Moved failed file to: {failed_file_path}")
+            except Exception as move_error:
+                print(f"⚠️ Failed to move file {file.filename}: {move_error}")
+                os.remove(svg_path)
+            continue
+
+        # Database insertion
+        milvus_id = None
+        try:
+            if embedding:
+                original_filename = file.filename
+                vector = embedding
+                milvus_data = [[vector], [original_filename]]
+
+                mr = collection.insert(milvus_data, field_names=["vector", "original_filename"])
+                milvus_id = mr.primary_keys[0]
+                print(f"✅ Milvus insertion successful for {file.filename}")
+        except Exception as e:
+            error_msg = f"Milvus insertion failed for {file.filename}: {str(e)}"
+            print(f"❌ {error_msg}")
+            log_failed_registration(file.filename, error_msg, "milvus_insertion")
+            failed_files.append({
+                "filename": file.filename,
+                "error": error_msg,
+                "stage": "milvus_insertion"
+            })
+            # Move failed file to failed_registrations folder
+            failed_file_path = os.path.join(FAILED_FILES_DIR, f"{logo_id}_{file.filename}")
+            try:
+                import shutil
+                shutil.move(svg_path, failed_file_path)
+                print(f"📁 Moved failed file to: {failed_file_path}")
+            except Exception as move_error:
+                print(f"⚠️ Failed to move file {file.filename}: {move_error}")
+                os.remove(svg_path)
+            continue
+
+        # MongoDB insertion
+        try:
+            with open(svg_path, 'r', encoding='utf-8') as svg_file:
+                svg_content = svg_file.read()
+
+            mongo_record = {
+                "logo_id": logo_id,
+                "svg_content": svg_content,
+                "milvus_id": milvus_id,
+                "file_name": file.filename,
+                "parsed_coordinates": target_vector.tolist(),
+                "isDeepSVG": is_deepsvg_successful,
+                "companyName": request.form.get('companyName'),
+                "websiteURL": request.form.get('websiteURL'),
+                "metadata": request.form.get('metadata')
+            }
+
+            mongo_collection.insert_one(mongo_record)
+            print(f"✅ MongoDB insertion successful for {file.filename}")
+        except Exception as e:
+            error_msg = f"MongoDB insertion failed for {file.filename}: {str(e)}"
+            print(f"❌ {error_msg}")
+            log_failed_registration(file.filename, error_msg, "mongodb_insertion")
+            failed_files.append({
+                "filename": file.filename,
+                "error": error_msg,
+                "stage": "mongodb_insertion"
+            })
+            # Move failed file to failed_registrations folder
+            failed_file_path = os.path.join(FAILED_FILES_DIR, f"{logo_id}_{file.filename}")
+            try:
+                import shutil
+                shutil.move(svg_path, failed_file_path)
+                print(f"📁 Moved failed file to: {failed_file_path}")
+            except Exception as move_error:
+                print(f"⚠️ Failed to move file {file.filename}: {move_error}")
+                os.remove(svg_path)
+            continue
+
+        # Clean up temporary file
+        try:
+            os.remove(svg_path)
+        except Exception as e:
+            print(f"⚠️ Failed to remove temporary file {svg_path}: {e}")
+
+        # Add to successful results
+        results.append({
+            "logo_id": logo_id,
+            "milvus_id": milvus_id,
+            "file_name": file.filename, 
+            "original": original_filename
+        })
+        print(f"✅ Successfully registered: {file.filename}")
+
+    # Prepare response with enhanced bulk registration feedback
+    total_files = len(uploaded_files)
+    successful_count = len(results)
+    failed_count = len(failed_files)
+    similarity_failures = [f for f in failed_files if f.get('stage') == 'similarity_check']
+    
+    # Determine response status and message
+    if successful_count == total_files:
+        status = "success"
+        message = f"All {successful_count} logo(s) registered successfully!"
+    elif successful_count > 0 and failed_count > 0:
+        status = "partial"
+        message = f"Some logos registered successfully, some failed"
+    else:
+        status = "failed"
+        message = f"None of the logos could be registered"
+    
+    response_data = {
+        "status": status,
+        "message": message,
+        "summary": {
+            "total_files": total_files,
+            "successful": successful_count,
+            "failed": failed_count,
+            "similarity_failures": len(similarity_failures)
+        },
+        "results": results
+    }
+    
+    if failed_files:
+        response_data["failed_files"] = failed_files
+        
+        # Add similarity failure summary
+        if similarity_failures:
+            response_data["similarity_summary"] = {
+                "count": len(similarity_failures),
+                "files": [f["filename"] for f in similarity_failures],
+                "message": f"{len(similarity_failures)} logo(s) failed due to similarity with existing logos"
+            }
+        
+        print(f"\n📋 Bulk Registration Summary:")
+        print(f"   Total files: {total_files}")
+        print(f"   ✅ Successful: {successful_count}")
+        print(f"   ❌ Failed: {failed_count}")
+        if similarity_failures:
+            print(f"   ⚠️ Similarity failures: {len(similarity_failures)}")
+        
+        print(f"\n📋 Failed files details:")
+        for failed in failed_files:
+            print(f"   ❌ {failed['filename']}: {failed['error']} (Stage: {failed['stage']})")
+            if failed.get('similar_logos'):
+                print(f"      Similar logos found: {len(failed['similar_logos'])}")
+
+    if not results and not failed_files:
+        return jsonify({'error': 'No valid SVG logos were processed.'}), 400
+    
+    # Return appropriate HTTP status code
+    if status == "success":
+        return jsonify(response_data), 200
+    elif status == "partial":
+        return jsonify(response_data), 207  # Multi-Status
+    else:
+        return jsonify(response_data), 400
+
+
+@app.route('/api/check-similarity', methods=['POST'])
+def check_similarity():
+    """
+    Check if a logo is similar to existing logos without registering it.
+    Useful for pre-registration validation.
+    """
+    if 'logo' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['logo']
+    if not file or file.filename == '' or not file.filename.endswith('.svg'):
+        return jsonify({'error': 'Only SVG files are allowed'}), 400
+
+    temp_id = str(uuid.uuid4())
+    temp_path = os.path.join(TEMP_DIR, f"{temp_id}.svg")
+    
+    try:
+        file.save(temp_path)
+        
+        # DeepSVG encoding
+        embedding, is_deepsvg_successful = load_and_encode(temp_path)
+        
+        # Algorithm-based encoding
+        target_vector = load_and_encode_ab(temp_path)
+        if target_vector is None:
+            return jsonify({'error': 'Failed to process SVG file'}), 500
+
+        similar_logos = []
+        can_register = True
+        highest_deepsvg_score = 0
+        highest_procrustes_score = 0
+
+        # Check DeepSVG similarity
         if is_deepsvg_successful:
             try:
                 search_results = collection.search(
                     data=[embedding],
                     anns_field="vector",
                     param={"metric_type": "COSINE"},
-                    limit=1,
+                    limit=5,
                     output_fields=["milvus_id"]
                 )[0]
+                
                 for hit in search_results:
-                    if hit.distance >= 0.9:  # Cosine similarity threshold
-                        os.remove(svg_path)
-                        return jsonify({'message': 'Registration failed: Similar logo already exists. Check existing logos in the Lookup'}), 409
+                    if hit.distance >= 0.98:  # DeepSVG threshold
+                        can_register = False
+                        highest_deepsvg_score = max(highest_deepsvg_score, hit.distance)
+                        
+                        similar_doc = mongo_collection.find_one({"milvus_id": hit.id})
+                        if similar_doc:
+                            similar_logos.append({
+                                "logo_id": str(similar_doc.get("_id")),
+                                "company_name": similar_doc.get("companyName", "Unknown Company"),
+                                "file_name": similar_doc.get("file_name", "Unknown"),
+                                "similarity_score": float(hit.distance),
+                                "method": "DeepSVG"
+                            })
             except Exception as e:
-                print(f"Milvus similarity check failed: {e}")
-        else:
+                print(f"DeepSVG similarity check failed: {e}")
 
+        # Check Procrustes similarity
+        for doc in mongo_collection.find({}, {"parsed_coordinates": 1, "companyName": 1, "file_name": 1}):
+            if "parsed_coordinates" not in doc:
+                continue
+            score = compute_procrustes_similarity(target_vector, np.array(doc["parsed_coordinates"]))
+            if score >= 0.95:  # Procrustes threshold
+                can_register = False
+                highest_procrustes_score = max(highest_procrustes_score, score)
+                
+                similar_logos.append({
+                    "logo_id": str(doc.get("_id")),
+                    "company_name": doc.get("companyName", "Unknown Company"),
+                    "file_name": doc.get("file_name", "Unknown"),
+                    "similarity_score": float(score),
+                    "method": "Procrustes"
+                })
 
-        # 2. Check against MongoDB (Procrustes)
-            try:
-                for doc in mongo_collection.find({}, {"parsed_coordinates": 1}):
-                    if "parsed_coordinates" not in doc:
-                        continue
-                    score = compute_procrustes_similarity(target_vector, np.array(doc["parsed_coordinates"]))
-                    if score >= 0.9:
-                        os.remove(svg_path)
-                        return jsonify({'message': 'Registration failed: Similar logo already exists (Procrustes similarity ≥ 0.9). Check existing logos in the Lookup'}), 409
-            except Exception as e:
-                print(f"Procrustes similarity check failed: {e}")
+        # Remove duplicates based on logo_id
+        unique_similar_logos = []
+        seen_ids = set()
+        for logo in similar_logos:
+            if logo["logo_id"] not in seen_ids:
+                unique_similar_logos.append(logo)
+                seen_ids.add(logo["logo_id"])
 
+        # Sort by similarity score (highest first)
+        unique_similar_logos.sort(key=lambda x: x["similarity_score"], reverse=True)
 
-        """end:Similarity Check"""
-
-        if embedding:
-            mr = collection.insert([[embedding]])
-            milvus_id = mr.primary_keys[0]
-        else:
-            milvus_id = None
-
-        with open(svg_path, 'r', encoding='utf-8') as svg_file:
-            svg_content = svg_file.read()
-
-        mongo_record = {
-            "logo_id": logo_id,
-            "svg_content": svg_content,
-            "milvus_id": milvus_id,
-            "file_name": file.filename,
-            "parsed_coordinates": target_vector.tolist(),
-            "isDeepSVG": is_deepsvg_successful,
-            "companyName": request.form.get('companyName'),
-            "websiteURL": request.form.get('websiteURL'),
-            "metadata": request.form.get('metadata')
+        response_data = {
+            "can_register": can_register,
+            "similar_logos": unique_similar_logos,
+            "thresholds": {
+                "deepsvg": 0.98,
+                "procrustes": 0.95
+            },
+            "highest_scores": {
+                "deepsvg": highest_deepsvg_score,
+                "procrustes": highest_procrustes_score
+            }
         }
 
-        mongo_collection.insert_one(mongo_record)
-        os.remove(svg_path)
+        if not can_register:
+            response_data["message"] = f"Logo cannot be registered. Found {len(unique_similar_logos)} similar logo(s) above threshold."
+        else:
+            response_data["message"] = "Logo can be registered. No similar logos found above threshold."
 
-        results.append({
-            "logo_id": logo_id,
-            "milvus_id": milvus_id,
-            "file_name": file.filename
-        })
+        return jsonify(response_data), 200
 
-    if not results:
-        return jsonify({'error': 'No valid SVG logos were processed.'}), 400
-    return jsonify({
-        "message": f"{len(results)} logo(s) registered successfully",
-        "results": results
-    }), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to check similarity: {str(e)}'}), 500
+    finally:
+        # Clean up temporary file
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception as e:
+            print(f"Failed to remove temporary file {temp_path}: {e}")
 
 
+@app.route('/api/check-bulk-similarity', methods=['POST'])
+def check_bulk_similarity():
+    """
+    Check if multiple logos are similar to existing logos without registering them.
+    Useful for pre-registration validation of bulk uploads.
+    """
+    if 'logos' not in request.files:
+        return jsonify({'error': 'No files uploaded'}), 400
+
+    uploaded_files = request.files.getlist('logos')
+    if not uploaded_files:
+        return jsonify({'error': 'No files received'}), 400
+
+    results = []
+    failed_files = []
+
+    for file in uploaded_files:
+        if not file or file.filename == '' or not file.filename.endswith('.svg'):
+            failed_files.append({
+                "filename": file.filename if file else 'None',
+                "error": "Invalid file format",
+                "stage": "validation"
+            })
+            continue
+
+        temp_id = str(uuid.uuid4())
+        temp_path = os.path.join(TEMP_DIR, f"{temp_id}.svg")
+        
+        try:
+            file.save(temp_path)
+            
+            # DeepSVG encoding
+            embedding, is_deepsvg_successful = load_and_encode(temp_path)
+            
+            # Algorithm-based encoding
+            target_vector = load_and_encode_ab(temp_path)
+            if target_vector is None:
+                failed_files.append({
+                    "filename": file.filename,
+                    "error": "Failed to process SVG file",
+                    "stage": "encoding"
+                })
+                continue
+
+            similar_logos = []
+            can_register = True
+            highest_deepsvg_score = 0
+            highest_procrustes_score = 0
+
+            # Check DeepSVG similarity
+            if is_deepsvg_successful:
+                try:
+                    search_results = collection.search(
+                        data=[embedding],
+                        anns_field="vector",
+                        param={"metric_type": "COSINE"},
+                        limit=5,
+                        output_fields=["milvus_id"]
+                    )[0]
+                    
+                    for hit in search_results:
+                        if hit.distance >= 0.98:  # DeepSVG threshold
+                            can_register = False
+                            highest_deepsvg_score = max(highest_deepsvg_score, hit.distance)
+                            
+                            similar_doc = mongo_collection.find_one({"milvus_id": hit.id})
+                            if similar_doc:
+                                # Convert SVG to base64 PNG for display
+                                logo_image = None
+                                try:
+                                    import cairosvg
+                                    png_data = cairosvg.svg2png(bytestring=similar_doc["svg_content"].encode('utf-8'))
+                                    b64_png = base64.b64encode(png_data).decode('utf-8')
+                                    logo_image = f"data:image/png;base64,{b64_png}"
+                                except Exception as e:
+                                    print(f"Failed to render logo image for {similar_doc.get('_id')}: {e}")
+                                
+                                similar_logos.append({
+                                    "logo_id": str(similar_doc.get("_id")),
+                                    "company_name": similar_doc.get("companyName", "Unknown Company"),
+                                    "website_url": similar_doc.get("websiteURL", ""),
+                                    "similarity_score": float(hit.distance),
+                                    "method": "DeepSVG",
+                                    "logo_image": logo_image
+                                })
+                except Exception as e:
+                    print(f"DeepSVG similarity check failed for {file.filename}: {e}")
+
+            # Check Procrustes similarity
+            for doc in mongo_collection.find({}, {"parsed_coordinates": 1, "companyName": 1, "file_name": 1, "svg_content": 1, "websiteURL": 1}):
+                if "parsed_coordinates" not in doc:
+                    continue
+                score = compute_procrustes_similarity(target_vector, np.array(doc["parsed_coordinates"]))
+                if score >= 0.95:  # Procrustes threshold
+                    can_register = False
+                    highest_procrustes_score = max(highest_procrustes_score, score)
+                    
+                    # Convert SVG to base64 PNG for display
+                    logo_image = None
+                    try:
+                        import cairosvg
+                        png_data = cairosvg.svg2png(bytestring=doc["svg_content"].encode('utf-8'))
+                        b64_png = base64.b64encode(png_data).decode('utf-8')
+                        logo_image = f"data:image/png;base64,{b64_png}"
+                    except Exception as e:
+                        print(f"Failed to render logo image for {doc.get('_id')}: {e}")
+                    
+                    similar_logos.append({
+                        "logo_id": str(doc.get("_id")),
+                        "company_name": doc.get("companyName", "Unknown Company"),
+                        "website_url": doc.get("websiteURL", ""),
+                        "similarity_score": float(score),
+                        "method": "Procrustes",
+                        "logo_image": logo_image
+                    })
+
+            # Remove duplicates based on logo_id
+            unique_similar_logos = []
+            seen_ids = set()
+            for logo in similar_logos:
+                if logo["logo_id"] not in seen_ids:
+                    unique_similar_logos.append(logo)
+                    seen_ids.add(logo["logo_id"])
+
+            # Sort by similarity score (highest first)
+            unique_similar_logos.sort(key=lambda x: x["similarity_score"], reverse=True)
+
+            file_result = {
+                "filename": file.filename,
+                "can_register": can_register,
+                "similar_logos": unique_similar_logos,
+                "highest_scores": {
+                    "deepsvg": highest_deepsvg_score,
+                    "procrustes": highest_procrustes_score
+                }
+            }
+
+            if can_register:
+                results.append(file_result)
+            else:
+                failed_files.append({
+                    "filename": file.filename,
+                    "error": f"Similar logos found ({len(unique_similar_logos)} matches)",
+                    "stage": "similarity_check",
+                    "similar_logos": unique_similar_logos
+                })
+
+        except Exception as e:
+            failed_files.append({
+                "filename": file.filename,
+                "error": f"Processing failed: {str(e)}",
+                "stage": "processing"
+            })
+        finally:
+            # Clean up temporary file
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except Exception as e:
+                print(f"Failed to remove temporary file {temp_path}: {e}")
+
+    # Prepare response
+    total_files = len(uploaded_files)
+    can_register_count = len(results)
+    cannot_register_count = len(failed_files)
+    
+    # Determine overall status
+    if can_register_count == total_files:
+        status = "all_can_register"
+        message = f"All {can_register_count} logo(s) can be registered!"
+    elif can_register_count > 0 and cannot_register_count > 0:
+        status = "partial"
+        message = f"Some logos can be registered, some cannot"
+    else:
+        status = "none_can_register"
+        message = f"None of the logos can be registered"
+
+    response_data = {
+        "status": status,
+        "message": message,
+        "summary": {
+            "total_files": total_files,
+            "can_register": can_register_count,
+            "cannot_register": cannot_register_count
+        },
+        "can_register": results,
+        "thresholds": {
+            "deepsvg": 0.98,
+            "procrustes": 0.95
+        }
+    }
+    
+    if failed_files:
+        response_data["cannot_register"] = failed_files
+
+    return jsonify(response_data), 200
 
 
 # Constants and directories
 TEMP_DIR = "./temp"
+FAILED_FILES_DIR = "./dataset/failed_registrations"
+LOGS_DIR = "./logs"
 os.makedirs(TEMP_DIR, exist_ok=True)
+os.makedirs(FAILED_FILES_DIR, exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
+
+def log_failed_registration(filename, error, stage, timestamp=None):
+    """Log failed registration to a file for later review"""
+    if timestamp is None:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    log_entry = f"[{timestamp}] {filename} | Stage: {stage} | Error: {error}\n"
+    log_file_path = os.path.join(LOGS_DIR, "failed_registrations.log")
+    
+    try:
+        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+            log_file.write(log_entry)
+    except Exception as e:
+        print(f"⚠️ Failed to write to log file: {e}")
 
 
 

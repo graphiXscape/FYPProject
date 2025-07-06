@@ -307,23 +307,26 @@ def min_max_normalize(scores):
     return (scores - min_val) / (max_val - min_val)
 
 def quality_weighted_fusion(deep_scores, alg_scores):
-    if alg_scores==1:
-        fused_scores= alg_scores
-        return fused_scores
-    elif  deep_scores ==1:
-        fused_scores = deep_scores
-        return fused_scores
-    else: 
-        deep_norm = z_score_normalize(deep_scores)
-        alg_norm = z_score_normalize(alg_scores)
-        deep_quality = 1.0 / (np.var(deep_norm) + 1e-6)
-        alg_quality = 1.0 / (np.var(alg_norm) + 1e-6)
-        total_quality = deep_quality + alg_quality
-        deep_weight = deep_quality / total_quality
-        alg_weight = alg_quality / total_quality
-        fused_scores = deep_weight * deep_norm + alg_weight * alg_norm
-        fused_scores = np.clip(fused_scores, 0.0, 1.0)
-        return fused_scores
+    # Normalize the lists for weighted fusion
+    deep_norm = z_score_normalize(deep_scores)
+    alg_norm = z_score_normalize(alg_scores)
+    deep_quality = 1.0 / (np.var(deep_norm) + 1e-6)
+    alg_quality = 1.0 / (np.var(alg_norm) + 1e-6)
+    total_quality = deep_quality + alg_quality
+    deep_weight = deep_quality / total_quality
+    alg_weight = alg_quality / total_quality
+
+    fused_scores = []
+    for i in range(len(deep_scores)):
+        if alg_scores[i] >= 0.99:
+            fused_scores.append(alg_scores[i])
+        elif deep_scores[i] >= 0.99:
+            fused_scores.append(deep_scores[i])
+        else:
+            fused = deep_weight * deep_norm[i] + alg_weight * alg_norm[i]
+            fused = np.clip(fused, 0.0, 1.0)
+            fused_scores.append(fused)
+    return fused_scores
 
 # Combined lookup endpoint
 @app.route('/api/lookup-logo', methods=['POST'])

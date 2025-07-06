@@ -115,7 +115,7 @@ try:
     mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     mongo_client.server_info()  # Force connection check
     print(  mongo_client.server_info() )
-    mongo_db = mongo_client["logoDB33"]             # your DB name
+    mongo_db = mongo_client["logoDB3000"]             # your DB name
     mongo_collection = mongo_db["logos"]          # your collection name
     print("✅ MongoDB Atlas connection established successfully.")
 except pymongo.errors.ServerSelectionTimeoutError as err:
@@ -161,8 +161,8 @@ def parse_svg(svg_path, num_samples=250):
     for distance in sample_distances:
         point = path.point(distance / total_length)
         sampled_points.append((point.real, point.imag))
-    points = order_points(np.array(sampled_points))
-    return points
+    #points = order_points(np.array(sampled_points))
+    return np.array(sampled_points)
 
 def load_and_encode_ab(svg_path):
     try:
@@ -199,15 +199,23 @@ def z_score_normalize(scores):
     return (scores - mean) / std
 
 def quality_weighted_fusion(deep_scores, alg_scores):
-    deep_norm = z_score_normalize(deep_scores)
-    alg_norm = z_score_normalize(alg_scores)
-    deep_quality = 1.0 / (np.var(deep_norm) + 1e-6)
-    alg_quality = 1.0 / (np.var(alg_norm) + 1e-6)
-    total_quality = deep_quality + alg_quality
-    deep_weight = deep_quality / total_quality
-    alg_weight = alg_quality / total_quality
-    fused_scores = deep_weight * deep_norm + alg_weight * alg_norm
-    return fused_scores
+    if alg_scores==1:
+        fused_scores= alg_scores
+        return fused_scores
+    elif  deep_scores ==1:
+        fused_scores = deep_scores
+        return fused_scores
+    else: 
+        deep_norm = z_score_normalize(deep_scores)
+        alg_norm = z_score_normalize(alg_scores)
+        deep_quality = 1.0 / (np.var(deep_norm) + 1e-6)
+        alg_quality = 1.0 / (np.var(alg_norm) + 1e-6)
+        total_quality = deep_quality + alg_quality
+        deep_weight = deep_quality / total_quality
+        alg_weight = alg_quality / total_quality
+        fused_scores = deep_weight * deep_norm + alg_weight * alg_norm
+        fused_scores = np.clip(fused_scores, 0.0, 1.0)
+        return fused_scores
 
 # Combined lookup endpoint
 @app.route('/api/lookup-logo', methods=['POST'])

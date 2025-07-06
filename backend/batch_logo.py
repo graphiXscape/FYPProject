@@ -12,7 +12,7 @@ from test import (
 )
 import numpy as np
 
-QUERY_DIR = './dataset/Test_Dataset'  # Change as needed
+QUERY_DIR = './dataset/added_components_queries'  # Change as needed
 OUTPUT_EXCEL = 'query_results.xlsx'
 TOP_K = 7
 

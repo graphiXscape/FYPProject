@@ -934,6 +934,12 @@ def combined_lookup():
                 for hit in deep_results:
                     doc = mongo_collection.find_one({"milvus_id": hit.id})
                     if doc:
+                        # Ensure we have all required fields, fetch complete document if needed
+                        if not all(field in doc for field in ["companyName", "file_name", "websiteURL"]):
+                            complete_doc = mongo_collection.find_one({"_id": doc["_id"]})
+                            if complete_doc:
+                                doc = complete_doc
+                        
                         deep_mongo_docs.append({
                             "_id": str(doc["_id"]),
                             "score": float(hit.distance),
@@ -951,7 +957,7 @@ def combined_lookup():
     # Algorithm search
     print("[5/7] Running algorithm-based search...")
     alg_matches = []
-    for doc in mongo_collection.find({}, {"parsed_coordinates": 1, "svg_content": 1}):
+    for doc in mongo_collection.find({}, {"parsed_coordinates": 1, "svg_content": 1, "companyName": 1, "file_name": 1, "websiteURL": 1, "logo_id": 1, "milvus_id": 1}):
         if "parsed_coordinates" not in doc or not doc["parsed_coordinates"]:
             print(f"[WARNING] Skipping doc {doc.get('_id')} - missing or empty 'parsed_coordinates'")
             continue
@@ -1003,7 +1009,8 @@ def combined_lookup():
             "_id": doc_id,
             "deep_score": deep_score,
             "alg_score": alg_score,
-            "doc": doc
+            "doc": doc,
+            "milvus_id": doc.get("milvus_id") if doc else None
         })
 
     # deep_scores = [c["deep_score"] for c in fusion_candidates]
@@ -1044,8 +1051,12 @@ def combined_lookup():
                 os.remove(temp_svg_file_path)
 
         candidate["color_score"] = color_score
-
-        # Only add color bonus if color_score >= threshold
+        
+        # Get additional details for logging
+        doc = candidate["doc"]
+        filename = doc.get("file_name", "Unknown")
+        company_name = doc.get("companyName", "Unknown Company")
+        
         if color_score >= COLOR_THRESHOLD:
             final_score = fused_2d_scores[i] + COLOR_WEIGHT * (color_score - COLOR_THRESHOLD)
         else:
@@ -1086,6 +1097,9 @@ def combined_lookup():
             # "companyUrl": f"https://example.com/brand/{mongo_id}",
             "companyName": company_name,
             "companyUrl": company_url,
+            "fileName": doc.get("file_name", "Unknown"),
+            "logoId": doc.get("logo_id", mongo_id),
+            "milvusId": str(item.get("milvus_id", doc.get("milvus_id", "Unknown"))),
             "score": round(item.get("fused_score", item.get("score", 0)), 4)
         })
 

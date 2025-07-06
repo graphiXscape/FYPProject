@@ -141,10 +141,10 @@ def load_and_encode(svg_path):
         return None, False
 
 # Helper: Join all paths in SVG into one Path object
-def order_points(points):
-    center = np.mean(points, axis=0)
-    angles = np.arctan2(points[:,1] - center[1], points[:,0] - center[0])
-    return points[np.argsort(angles)]
+# def order_points(points):
+#     center = np.mean(points, axis=0)
+#     angles = np.arctan2(points[:,1] - center[1], points[:,0] - center[0])
+#     return points[np.argsort(angles)]
 
 def join_svg_paths(svg_file):
     paths, _ = svg2paths(svg_file)
@@ -162,8 +162,7 @@ def parse_svg(svg_path, num_samples=250):
     for distance in sample_distances:
         point = path.point(distance / total_length)
         sampled_points.append((point.real, point.imag))
-    points = order_points(np.array(sampled_points))
-    return points
+    return np.array(sampled_points)
 
 def load_and_encode_ab(svg_path):
     try:
@@ -956,22 +955,7 @@ def compare_svg_colors(svg1, svg2, threshold=2.3):
         return 0.0
 
     similarity_score = matched / total
-    print(f"Similarity Score: {similarity_score:.2f} ({matched}/{total} colors matched)")
     return similarity_score
-
-# Example usage
-# compare_svg_colors('../dataset/successful_svgs_125/303108_google-icon-logo.svg', '../dataset/successful_svgs_125/303113_facebook-icon-logo.svg')
-
-#######################################
-
-
-
-
-
-
-
-
-
 # Run only once
 if __name__ == '__main__':
     app.run(port=5000, debug=True, use_reloader=False)

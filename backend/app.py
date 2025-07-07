@@ -1094,7 +1094,8 @@ def combined_lookup():
         company_name = doc.get("companyName", "Unknown Company")
         
         if color_score >= COLOR_THRESHOLD:
-            final_score = fused_2d_scores[i] + COLOR_WEIGHT * (color_score - COLOR_THRESHOLD)
+            #final_score = fused_2d_scores[i] + COLOR_WEIGHT * (color_score - COLOR_THRESHOLD)
+            final_score = fused_2d_scores[i]
         else:
             final_score = fused_2d_scores[i]
 

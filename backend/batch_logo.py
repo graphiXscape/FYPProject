@@ -12,7 +12,7 @@ from test import (
 )
 import numpy as np
 
-QUERY_DIR = './dataset/New_Test_Dataset'  # Change as needed
+QUERY_DIR = './dataset/demo_rotatedqueries_69'  # Change as needed
 OUTPUT_EXCEL = 'query_results.xlsx'
 TOP_K = 7
 
@@ -131,6 +131,7 @@ def main():
         query_png_path = svg_to_png_temp(query_svg_content)
         # Save similar SVGs as PNGs for Excel
         similar_png_paths = []
+        similarity_scores = []
         for item in matches:
             doc = item["doc"]
             try:
@@ -139,11 +140,14 @@ def main():
             except Exception as e:
                 print(f"[ERROR] Could not convert similar SVG to PNG: {e}")
                 similar_png_paths.append(None)
+            similarity_scores.append(item.get("fused_score", 0))
         while len(similar_png_paths) < TOP_K:
             similar_png_paths.append(None)
-        row = [svg_filename, query_png_path] + similar_png_paths[:TOP_K]
+            similarity_scores.append(None)
+        # Each row now contains: filename, query_png_path, [similar_png_paths...], [similarity_scores...]
+        row = [svg_filename, query_png_path] + similar_png_paths[:TOP_K] + similarity_scores[:TOP_K]
         results.append(row)
-    columns = ["Filename", "Query Image"] + [f"Similar Image {i+1}" for i in range(TOP_K)]
+    columns = ["Filename", "Query Image"] + [f"Similar Image {i+1}" for i in range(TOP_K)] + [f"Score {i+1}" for i in range(TOP_K)]
     wb = Workbook()
     ws = wb.active
     ws.title = "Image Similarity Results"
@@ -151,17 +155,30 @@ def main():
     image_size = 80
     cell_width = 15
     for row_idx, row in enumerate(results, start=2):
-        ws.row_dimensions[row_idx].height = image_size * 0.75
-        for col_idx, img_path in enumerate(row, start=1):
+        ws.row_dimensions[row_idx].height = image_size * 1.2  # Increase height for image + score
+        for col_idx, cell_value in enumerate(row, start=1):
             if col_idx == 1:
-                ws.cell(row=row_idx, column=col_idx, value=img_path)
+                ws.cell(row=row_idx, column=col_idx, value=cell_value)
                 ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = cell_width
-            elif img_path and os.path.exists(img_path):
-                img = ExcelImage(img_path)
-                img.width, img.height = image_size, image_size
-                ws.add_image(img, ws.cell(row=row_idx, column=col_idx).coordinate)
-                col_letter = ws.cell(row=1, column=col_idx).column_letter
-                ws.column_dimensions[col_letter].width = image_size // 6
+            elif col_idx == 2:
+                # Query image (no score)
+                if cell_value and os.path.exists(cell_value):
+                    img = ExcelImage(cell_value)
+                    img.width, img.height = image_size, int(image_size * 0.8)
+                    ws.add_image(img, ws.cell(row=row_idx, column=col_idx).coordinate)
+                ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = image_size // 6
+            elif 3 <= col_idx <= 2 + TOP_K:
+                # Similar images with score
+                img_path = cell_value
+                score = row[col_idx + TOP_K - 1]  # Get the corresponding score
+                if img_path and os.path.exists(img_path):
+                    img = ExcelImage(img_path)
+                    img.width, img.height = image_size, int(image_size * 0.8)  # Leave space for score
+                    ws.add_image(img, ws.cell(row=row_idx, column=col_idx).coordinate)
+                # Set the cell value to the score (as string)
+                if score is not None:
+                    ws.cell(row=row_idx, column=col_idx, value=f"{score:.4f}")
+                ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = image_size // 6
     wb.save(OUTPUT_EXCEL)
     print(f"Results saved to {OUTPUT_EXCEL}")
 

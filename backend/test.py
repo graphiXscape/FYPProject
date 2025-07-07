@@ -104,7 +104,8 @@ connections.connect(uri=ENDPOINT, token=TOKEN)
 # print("Connected to Zilliz Cloud!")
 
 # Load existing collection
-collection_name = "image_Collection3"
+#collection_name = "image_Collection3"
+collection_name = "image_133" #for 133 logos colored
 collection = Collection(name=collection_name)
 
 
@@ -115,7 +116,8 @@ try:
     mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     mongo_client.server_info()  # Force connection check
     print(  mongo_client.server_info() )
-    mongo_db = mongo_client["logoDB3000"]             # your DB name
+    #mongo_db = mongo_client["logoDB3000"]             # your DB name
+    mongo_db = mongo_client["logoDB133colored"] 
     mongo_collection = mongo_db["logos"]          # your collection name
     print("✅ MongoDB Atlas connection established successfully.")
 except pymongo.errors.ServerSelectionTimeoutError as err:

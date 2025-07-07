@@ -105,8 +105,8 @@ connections.connect(uri=ENDPOINT, token=TOKEN)
 # print("Connected to Zilliz Cloud!")
 
 # Load existing collection
-collection_name = "test_deploy" # for 3000 logos
-# collection_name = "image_133" #for 133 logos colored
+#collection_name = "test_deploy" # for 3000 logos
+collection_name = "image_133" #for 133 logos colored
 collection = Collection(name=collection_name)
 
 
@@ -117,8 +117,8 @@ try:
     mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     mongo_client.server_info()  # Force connection check
     print(  mongo_client.server_info() )
-    mongo_db = mongo_client["logotest"]  
-    # mongo_db = mongo_client["logoDB133colored"]           # your DB name
+    #mongo_db = mongo_client["logotest"]  
+    mongo_db = mongo_client["logoDB133colored"]           # your DB name
     mongo_collection = mongo_db["logos"]          # your collection name
     print("✅ MongoDB Atlas connection established successfully.")
 except pymongo.errors.ServerSelectionTimeoutError as err:
@@ -852,8 +852,10 @@ def min_max_normalize(scores):
 
 def quality_weighted_fusion(deep_scores, alg_scores):
     # Normalize the lists for weighted fusion
-    deep_norm = z_score_normalize(deep_scores)
-    alg_norm = z_score_normalize(alg_scores)
+    # deep_norm = z_score_normalize(deep_scores)
+    # alg_norm = z_score_normalize(alg_scores)
+    deep_norm = min_max_normalize(deep_scores)
+    alg_norm = min_max_normalize(alg_scores)
     deep_quality = 1.0 / (np.var(deep_norm) + 1e-6)
     alg_quality = 1.0 / (np.var(alg_norm) + 1e-6)
     total_quality = deep_quality + alg_quality
@@ -864,11 +866,13 @@ def quality_weighted_fusion(deep_scores, alg_scores):
     for i in range(len(deep_scores)):
         if alg_scores[i] >= 0.99:
             fused_scores.append(alg_scores[i])
-        elif deep_scores[i] >= 0.99:
-            fused_scores.append(deep_scores[i])
+        # elif deep_scores[i] >= 0.99:
+        #     fused_scores.append(deep_scores[i])
+        elif deep_scores[i] == 0.0:
+             fused_scores.append(alg_scores[i])
         else:
             fused = deep_weight * deep_norm[i] + alg_weight * alg_norm[i]
-            fused = np.clip(fused, 0.0, 1.0)
+            #fused = np.clip(fused, 0.0, 1.0)
             fused_scores.append(fused)
     return fused_scores
 
@@ -1065,8 +1069,8 @@ def combined_lookup():
         #final_score = max(0.0, min(1.0, final_score)) # Ensure range is [0,1]
         candidate["fused_score"] = float(final_score)
 
-        # print(f"[FUSION] {candidate['_id']} - Deep: {candidate['deep_score']:.3f}, Alg: {candidate['alg_score']:.3f}, "
-        #     f"Color: {color_score:.3f} → Final Score: {final_score:.3f}")
+        print(f"[FUSION] {candidate['_id']} - Deep: {candidate['deep_score']:.3f}, Alg: {candidate['alg_score']:.3f}, "
+            f"Color: {color_score:.3f} → Final Score: {final_score:.3f}")
 
     #############
     selected = sorted(fusion_candidates, key=lambda x: -x["fused_score"])[:5]
